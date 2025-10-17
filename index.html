@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AC Detection - Window vs Split</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/onnxruntime-web/1.16.0/ort.min.js"></script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 20px;
+      }
+
+      .container {
+        background: white;
+        border-radius: 15px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        max-width: 900px;
+        width: 100%;
+        overflow: hidden;
+      }
+
+      .header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 30px 20px;
+        text-align: center;
+      }
+
+      .header h1 {
+        font-size: 28px;
+        margin-bottom: 10px;
+      }
+
+      .header p {
+        font-size: 14px;
+        opacity: 0.9;
+      }
+
+      .content {
+        padding: 30px;
+      }
+
+      .camera-section {
+        position: relative;
+        background: #000;
+        border-radius: 10px;
+        overflow: hidden;
+        margin-bottom: 20px;
+        aspect-ratio: 16/9;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+
+      video {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: none;
+      }
+
+      canvas {
+        width: 100%;
+        height: 100%;
+      }
+
+      .loading {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: white;
+        text-align: center;
+        display: none;
+      }
+
+      .loading-spinner {
+        width: 40px;
+        height: 40px;
+        border: 4px solid rgba(255, 255, 255, 0.3);
+        border-top: 4px solid white;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 15px;
+      }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+
+      .controls {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+      }
+
+      button {
+        padding: 12px 24px;
+        border: none;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+
+      .btn-primary {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+      }
+
+      .btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+      }
+
+      .btn-primary:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      .btn-secondary {
+        background: #f0f0f0;
+        color: #333;
+      }
+
+      .btn-secondary:hover {
+        background: #e0e0e0;
+      }
+
+      .btn-secondary:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      .camera-select {
+        padding: 10px 15px;
+        border: 2px solid #ddd;
+        border-radius: 8px;
+        font-size: 14px;
+        cursor: pointer;
+        flex: 1;
+        min-width: 200px;
+      }
+
+      .camera-select:focus {
+        outline: none;
+        border-color: #667eea;
+      }
+
+      .info-panel {
+        background: #f8f9fa;
+        padding: 20px;
+        border-radius: 10px;
+        margin-top: 20px;
+      }
+
+      .info-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 10px 0;
+        border-bottom: 1px solid #ddd;
+      }
+
+      .info-row:last-child {
+        border-bottom: none;
+      }
+
+      .info-label {
+        font-weight: 600;
+        color: #333;
+      }
+
+      .info-value {
+        color: #667eea;
+        font-weight: 500;
+      }
+
+      .status {
+        display: inline-block;
+        padding: 6px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 600;
+        margin-top: 10px;
+      }
+
+      .status.ready {
+        background: #d4edda;
+        color: #155724;
+      }
+
+      .status.error {
+        background: #f8d7da;
+        color: #721c24;
+      }
+
+      .status.detecting {
+        background: #cce5ff;
+        color: #004085;
+      }
+
+      .error-message {
+        background: #f8d7da;
+        color: #721c24;
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        display: none;
+      }
+
+      .detection-stats {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 15px;
+        margin-top: 20px;
+      }
+
+      .stat-box {
+        background: white;
+        padding: 15px;
+        border-radius: 8px;
+        border-left: 4px solid #667eea;
+      }
+
+      .stat-label {
+        font-size: 12px;
+        color: #999;
+        text-transform: uppercase;
+        margin-bottom: 5px;
+      }
+
+      .stat-value {
+        font-size: 24px;
+        font-weight: bold;
+        color: #667eea;
+      }
+
+      @media (max-width: 600px) {
+        .header h1 {
+          font-size: 20px;
+        }
+
+        .content {
+          padding: 20px;
+        }
+
+        .controls {
+          flex-direction: column;
+        }
+
+        .camera-select {
+          min-width: 100%;
+        }
+
+        .detection-stats {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>🎥 AC Type Detection</h1>
+        <p>
+          Point your camera at an AC unit to detect if it's Window or Split type
+        </p>
+      </div>
+
+      <div class="content">
+        <div class="error-message" id="errorMessage"></div>
+
+        <div class="controls">
+          <select id="cameraSelect" class="camera-select">
+            <option value="">Loading cameras...</option>
+          </select>
+          <button class="btn-primary" id="startBtn" onclick="startCamera()">
+            Start Camera
+          </button>
+          <button
+            class="btn-secondary"
+            id="stopBtn"
+            onclick="stopCamera()"
+            disabled
+          >
+            Stop Camera
+          </button>
+        </div>
+
+        <div class="camera-section">
+          <video id="video"></video>
+          <canvas id="canvas"></canvas>
+          <div class="loading" id="loading">
+            <div class="loading-spinner"></div>
+            <p>Loading model...</p>
+          </div>
+        </div>
+
+        <div class="info-panel">
+          <div class="info-row">
+            <span class="info-label">Model Status:</span>
+            <span class="info-value" id="modelStatus">Not Loaded</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Camera Status:</span>
+            <span class="info-value" id="cameraStatus">Inactive</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">FPS:</span>
+            <span class="info-value" id="fpsCounter">0</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Detections:</span>
+            <span class="info-value" id="detectionCount">0</span>
+          </div>
+          <div id="statusDiv"></div>
+        </div>
+
+        <div class="detection-stats">
+          <div class="stat-box">
+            <div class="stat-label">Window AC</div>
+            <div class="stat-value" id="windowCount">0</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Split AC</div>
+            <div class="stat-value" id="splitCount">0</div>
+          </div>
+        </div>
+
+        <div style="margin-top: 20px; font-size: 12px; color: #999">
+          <p><strong>Instructions:</strong></p>
+          <p>1. Select your camera from the dropdown</p>
+          <p>2. Click "Start Camera" to begin detection</p>
+          <p>3. Point at an AC unit to detect its type</p>
+          <p>4. Labels will appear over detected ACs</p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let video, canvas, ctx;
+      let stream = null;
+      let session = null;
+      let isRunning = false;
+      let detectionStats = { window: 0, split: 0 };
+      let frameCount = 0;
+      let lastTime = Date.now();
+
+      const modelPath = "./best.onnx"; // Replace with your model URL
+      const CONFIDENCE_THRESHOLD = 0.5;
+      const CLASSES = ["window", "split"];
+
+      async function initPage() {
+        video = document.getElementById("video");
+        canvas = document.getElementById("canvas");
+        ctx = canvas.getContext("2d");
+
+        // Get available cameras
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const cameras = devices.filter(
+          (device) => device.kind === "videoinput"
+        );
+        const cameraSelect = document.getElementById("cameraSelect");
+
+        if (cameras.length === 0) {
+          showError("No cameras found on this device");
+          return;
+        }
+
+        cameraSelect.innerHTML = "";
+        cameras.forEach((camera, index) => {
+          const option = document.createElement("option");
+          option.value = camera.deviceId;
+          option.text = camera.label || `Camera ${index + 1}`;
+          cameraSelect.appendChild(option);
+        });
+
+        updateStatus("model", "Ready to load model");
+      }
+
+      async function startCamera() {
+        try {
+          const cameraSelect = document.getElementById("cameraSelect");
+          const selectedDeviceId = cameraSelect.value;
+
+          if (!selectedDeviceId) {
+            showError("Please select a camera");
+            return;
+          }
+
+          // Load model if not already loaded
+          if (!session) {
+            document.getElementById("loading").style.display = "block";
+            updateStatus("model", "Loading model...");
+            // Note: Replace modelPath with your actual ONNX model URL
+            // session = await ort.InferenceSession.create(modelPath);
+            document.getElementById("loading").style.display = "none";
+            updateStatus("model", "Model loaded (Demo mode)");
+          }
+
+          // Request camera access
+          const constraints = {
+            video: {
+              deviceId: { exact: selectedDeviceId },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+            audio: false,
+          };
+
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          video.srcObject = stream;
+
+          // Wait for video to load
+          await new Promise((resolve) => {
+            video.onloadedmetadata = () => {
+              canvas.width = video.videoWidth;
+              canvas.height = video.videoHeight;
+              resolve();
+            };
+          });
+
+          isRunning = true;
+          document.getElementById("startBtn").disabled = true;
+          document.getElementById("stopBtn").disabled = false;
+          document.getElementById("cameraSelect").disabled = true;
+          updateStatus("camera", "Active");
+
+          detectFrame();
+        } catch (err) {
+          showError("Camera access denied or not available: " + err.message);
+          updateStatus("camera", "Error");
+        }
+      }
+
+      function stopCamera() {
+        isRunning = false;
+        if (stream) {
+          stream.getTracks().forEach((track) => track.stop());
+        }
+        document.getElementById("startBtn").disabled = false;
+        document.getElementById("stopBtn").disabled = true;
+        document.getElementById("cameraSelect").disabled = false;
+        updateStatus("camera", "Inactive");
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+
+      async function detectFrame() {
+        if (!isRunning) return;
+
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        // Demo: Draw sample detections
+        // Replace this with actual ONNX model inference
+        drawSampleDetections();
+
+        updateFPS();
+        requestAnimationFrame(detectFrame);
+      }
+
+      function drawSampleDetections() {
+        // This is a demo function - replace with actual model inference
+        const detections = [];
+
+        // Example: Draw some demo boxes (remove when using real model)
+        ctx.strokeStyle = "#00FF00";
+        ctx.lineWidth = 3;
+        ctx.font = "bold 16px Arial";
+
+        // You would get actual detections from ONNX model here
+        // detections = await runInference(frame);
+
+        // For now, just show the canvas is working
+      }
+
+      function drawDetection(x, y, width, height, label, confidence) {
+        const color = label === "window" ? "#FF6B6B" : "#4ECDC4";
+
+        // Draw bounding box
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(x, y, width, height);
+
+        // Draw label background
+        ctx.fillStyle = color;
+        const labelText = `${label.toUpperCase()} (${(confidence * 100).toFixed(
+          1
+        )}%)`;
+        const textMetrics = ctx.measureText(labelText);
+        const textHeight = 24;
+        const padding = 8;
+
+        ctx.fillRect(
+          x,
+          y - textHeight - padding,
+          textMetrics.width + padding * 2,
+          textHeight + padding
+        );
+
+        // Draw label text
+        ctx.fillStyle = "white";
+        ctx.font = "bold 14px Arial";
+        ctx.fillText(labelText, x + padding, y - padding);
+
+        // Update stats
+        if (label === "window") detectionStats.window++;
+        else detectionStats.split++;
+      }
+
+      function drawSampleDetections() {
+        // Demo sample detections - remove when using real model
+        const width = canvas.width;
+        const height = canvas.height;
+
+        // Just show a working canvas - real detections come from model
+      }
+
+      function updateFPS() {
+        frameCount++;
+        const currentTime = Date.now();
+        if (currentTime - lastTime >= 1000) {
+          document.getElementById("fpsCounter").textContent = frameCount;
+          document.getElementById("detectionCount").textContent = (
+            detectionStats.window + detectionStats.split
+          ).toString();
+          document.getElementById("windowCount").textContent =
+            detectionStats.window;
+          document.getElementById("splitCount").textContent =
+            detectionStats.split;
+          frameCount = 0;
+          lastTime = currentTime;
+        }
+      }
+
+      function updateStatus(type, status) {
+        if (type === "model") {
+          document.getElementById("modelStatus").textContent = status;
+        } else if (type === "camera") {
+          document.getElementById("cameraStatus").textContent = status;
+        }
+      }
+
+      function showError(message) {
+        const errorDiv = document.getElementById("errorMessage");
+        errorDiv.textContent = message;
+        errorDiv.style.display = "block";
+        setTimeout(() => {
+          errorDiv.style.display = "none";
+        }, 5000);
+      }
+
+      // Initialize on page load
+      window.addEventListener("load", initPage);
+
+      // Cleanup on page unload
+      window.addEventListener("beforeunload", stopCamera);
+    </script>
+  </body>
+</html>
